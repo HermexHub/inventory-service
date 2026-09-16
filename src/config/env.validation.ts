@@ -19,6 +19,9 @@ export class EnvironmentVariables {
 	})
 	NODE_ENV!: Environment
 
+	@IsNumber({}, { message: 'METRICS_PORT must be a number' })
+	METRICS_PORT: number = 3002
+
 	@IsString()
 	@IsNotEmpty({ message: 'DB_HOST is required' })
 	DB_HOST!: string

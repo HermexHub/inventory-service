@@ -20,6 +20,7 @@ import {
 	RabbitQueues,
 	ReservedItemPayload
 } from '@hermex/contracts'
+import { MetricsService } from '../metrics/metrics.service'
 import { RabbitMQService } from '../rabbitmq/rabbitmq.service'
 import { ProcessedEventEntity } from './entities/processed-event.entity'
 import { ProductEntity } from './entities/product.entity'
@@ -40,7 +41,8 @@ export class InventoryService implements OnApplicationBootstrap {
 		private readonly reservationRepository: Repository<StockReservationEntity>,
 		@InjectRepository(ProcessedEventEntity)
 		private readonly processedEventRepository: Repository<ProcessedEventEntity>,
-		private readonly rabbitMQService: RabbitMQService
+		private readonly rabbitMQService: RabbitMQService,
+		private readonly metricsService: MetricsService
 	) { }
 
 	async onApplicationBootstrap(): Promise<void> {
@@ -116,6 +118,7 @@ export class InventoryService implements OnApplicationBootstrap {
 
 				// Record event as processed to prevent re-runs
 				await this.recordProcessedEvent(eventId, 'order.created.failed')
+				this.metricsService.recordReservation('failed')
 
 				const inventoryFailedEvent: BaseEvent<InventoryFailedPayload> = {
 					eventId: uuidv4(),
@@ -175,6 +178,11 @@ export class InventoryService implements OnApplicationBootstrap {
 			await queryRunner.manager.save(processedEvent)
 
 			await queryRunner.commitTransaction()
+
+			this.metricsService.recordReservation('success')
+			for (const { product } of productsToUpdate) {
+				this.metricsService.updateStockLevel(product.id, product.stockQuantity)
+			}
 
 			this.logger.log(
 				`[${correlationId}] Stock successfully reserved for Order: ${orderId} (Reservation: ${reservationId})`
@@ -289,6 +297,8 @@ export class InventoryService implements OnApplicationBootstrap {
 			await queryRunner.manager.save(processedEvent)
 
 			await queryRunner.commitTransaction()
+
+			this.metricsService.recordCompensation('success')
 
 			this.logger.log(
 				`[${correlationId}] Stock compensation completed for Order: ${orderId}`

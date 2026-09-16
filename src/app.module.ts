@@ -6,6 +6,7 @@ import databaseConfig from './config/database.config'
 import { validateEnv } from './config/env.validation'
 import rabbitmqConfig from './config/rabbitmq.config'
 import { InventoryModule } from './modules/inventory/inventory.module'
+import { MetricsModule } from './modules/metrics/metrics.module'
 import { RabbitMQModule } from './modules/rabbitmq/rabbitmq.module'
 
 @Module({
@@ -25,6 +26,7 @@ import { RabbitMQModule } from './modules/rabbitmq/rabbitmq.module'
 			useFactory: (config: ConfigService) => config.get('database')!
 		}),
 		RabbitMQModule,
+		MetricsModule,
 		InventoryModule
 	]
 })
