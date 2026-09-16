@@ -77,7 +77,7 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
 			OrderRoutingKeys.CREATED
 		)
 
-		// 2. Assert Inventory Payment Events Queue (listens to payment.failed for compensation)
+		// 2. Assert Inventory Payment Events Queue (listens to payment.failed & payment.succeeded)
 		await this.channel.assertQueue(RabbitQueues.INVENTORY_PAYMENT_EVENTS, {
 			durable: true,
 			deadLetterExchange: RabbitExchanges.DLX
@@ -86,6 +86,11 @@ export class RabbitMQService implements OnModuleInit, OnModuleDestroy {
 			RabbitQueues.INVENTORY_PAYMENT_EVENTS,
 			RabbitExchanges.PAYMENT,
 			PaymentRoutingKeys.FAILED
+		)
+		await this.channel.bindQueue(
+			RabbitQueues.INVENTORY_PAYMENT_EVENTS,
+			RabbitExchanges.PAYMENT,
+			PaymentRoutingKeys.SUCCEEDED
 		)
 
 		this.logger.log('RabbitMQ topology verified for inventory-service')

@@ -15,6 +15,7 @@ import {
 	InventoryRoutingKeys,
 	OrderCreatedPayload,
 	PaymentFailedPayload,
+	PaymentSucceededPayload,
 	RabbitExchanges,
 	RabbitQueues,
 	ReservedItemPayload
@@ -322,6 +323,87 @@ export class InventoryService implements OnApplicationBootstrap {
 		}
 	}
 
+	/**
+	 * Saga Step: Payment Succeeded
+	 * Confirms stock reservations for the fulfilled order
+	 */
+	async handlePaymentSucceeded(
+		event: BaseEvent<PaymentSucceededPayload>
+	): Promise<void> {
+		const { eventId, correlationId, payload } = event
+		const { orderId } = payload
+
+		this.logger.log(
+			`[${correlationId}] Processing payment.succeeded confirmation for Order: ${orderId}`
+		)
+
+		// 1. Idempotency Check
+		const alreadyProcessed = await this.processedEventRepository.findOne({
+			where: { eventId }
+		})
+		if (alreadyProcessed) {
+			this.logger.warn(
+				`[${correlationId}] Event ${eventId} for payment confirmation has already been processed. Skipping.`
+			)
+			return
+		}
+
+		// 2. Transactional Reservation Confirmation
+		const queryRunner = this.dataSource.createQueryRunner()
+		await queryRunner.connect()
+		await queryRunner.startTransaction()
+
+		try {
+			const reservations = await queryRunner.manager.find(
+				StockReservationEntity,
+				{
+					where: {
+						orderId,
+						status: ReservationStatus.PENDING
+					}
+				}
+			)
+
+			if (reservations.length === 0) {
+				this.logger.warn(
+					`[${correlationId}] No pending reservations found for Order ${orderId} to confirm.`
+				)
+				await queryRunner.rollbackTransaction()
+				return
+			}
+
+			for (const reservation of reservations) {
+				reservation.status = ReservationStatus.CONFIRMED
+				await queryRunner.manager.save(reservation)
+			}
+
+			// Record idempotency
+			const processedEvent = queryRunner.manager.create(
+				ProcessedEventEntity,
+				{
+					eventId,
+					eventType: 'payment.succeeded.confirmation'
+				}
+			)
+			await queryRunner.manager.save(processedEvent)
+
+			await queryRunner.commitTransaction()
+
+			this.logger.log(
+				`[${correlationId}] Stock reservations for Order ${orderId} confirmed successfully (${reservations.length} items)`
+			)
+		} catch (error) {
+			await queryRunner.rollbackTransaction()
+			this.logger.error(
+				`[${correlationId}] Error confirming stock reservations for Order ${orderId}: ${(error as Error).message}`,
+				(error as Error).stack
+			)
+			throw error
+		} finally {
+			await queryRunner.release()
+		}
+	}
+
 	private async recordProcessedEvent(
 		eventId: string,
 		eventType: string
@@ -346,13 +428,21 @@ export class InventoryService implements OnApplicationBootstrap {
 			}
 		)
 
-		// 2. Subscribe to payment.failed (Compensating rollback)
-		await this.rabbitMQService.consumeEvents<PaymentFailedPayload>(
-			RabbitQueues.INVENTORY_PAYMENT_EVENTS,
-			async (event) => {
-				await this.handlePaymentFailed(event)
+		// 2. Subscribe to payment events (both success confirmation and failed compensation)
+		await this.rabbitMQService.consumeEvents<
+			PaymentSucceededPayload | PaymentFailedPayload
+		>(RabbitQueues.INVENTORY_PAYMENT_EVENTS, async (event) => {
+			const payload = event.payload
+			if ('paymentId' in payload) {
+				await this.handlePaymentSucceeded(
+					event as BaseEvent<PaymentSucceededPayload>
+				)
+			} else {
+				await this.handlePaymentFailed(
+					event as BaseEvent<PaymentFailedPayload>
+				)
 			}
-		)
+		})
 
 		this.logger.log('Inventory Service Saga listeners successfully activated')
 	}
