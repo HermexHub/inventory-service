@@ -4,11 +4,18 @@ import {
 	OnApplicationBootstrap
 } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { DataSource, Repository } from 'typeorm'
+import { DataSource, In, Repository } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
+import { RpcException } from '@nestjs/microservices'
+import { status as GrpcStatus } from '@grpc/grpc-js'
 import {
 	BaseEvent,
+	CartItemInput,
+	CartItemValidationResult,
+	CartStockStatus,
 	FailedItemPayload,
+	GetProductsRequest,
+	GetProductsResponse,
 	InventoryCompensationPayload,
 	InventoryFailedPayload,
 	InventoryReservedPayload,
@@ -16,9 +23,12 @@ import {
 	OrderCreatedPayload,
 	PaymentFailedPayload,
 	PaymentSucceededPayload,
+	ProductItemMessage,
 	RabbitExchanges,
 	RabbitQueues,
-	ReservedItemPayload
+	ReservedItemPayload,
+	ValidateCartRequest,
+	ValidateCartResponse
 } from '@hermex/contracts'
 import { MetricsService } from '../metrics/metrics.service'
 import { RabbitMQService } from '../rabbitmq/rabbitmq.service'
@@ -48,6 +58,8 @@ export class InventoryService implements OnApplicationBootstrap {
 	async onApplicationBootstrap(): Promise<void> {
 		await this.listenToSagaEvents()
 	}
+
+
 
 	/**
 	 * Main Saga step: Handle order.created, verify stock, reserve items or publish failure
@@ -456,4 +468,208 @@ export class InventoryService implements OnApplicationBootstrap {
 
 		this.logger.log('Inventory Service Saga listeners successfully activated')
 	}
+
+	/**
+	 * gRPC Catalog Query: Paginated products with stock filter, search, and sorting
+	 */
+	async getProducts(request: GetProductsRequest): Promise<GetProductsResponse> {
+		const page = Math.max(1, Number(request.page) || 1)
+		const limit = Math.min(100, Math.max(1, Number(request.limit) || 20))
+		const skip = (page - 1) * limit
+
+		const queryBuilder = this.productRepository.createQueryBuilder('product')
+
+		if (request.inStockOnly) {
+			queryBuilder.andWhere('product.stockQuantity > 0')
+		}
+
+		if (request.search && request.search.trim().length > 0) {
+			const searchTerm = `%${request.search.trim().toLowerCase()}%`
+			queryBuilder.andWhere(
+				'(LOWER(product.name) LIKE :searchTerm OR LOWER(product.description) LIKE :searchTerm OR LOWER(product.sku) LIKE :searchTerm)',
+				{ searchTerm }
+			)
+		}
+
+		const allowedSortFields = ['createdAt', 'price', 'name', 'stockQuantity']
+		const sortBy = allowedSortFields.includes(request.sortBy || '')
+			? request.sortBy!
+			: 'createdAt'
+		const sortOrder = request.sortOrder?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC'
+
+		queryBuilder.orderBy(`product.${sortBy}`, sortOrder)
+		queryBuilder.skip(skip).take(limit)
+
+		const [products, totalItems] = await queryBuilder.getManyAndCount()
+		const totalPages = Math.ceil(totalItems / limit) || 1
+
+		const items: ProductItemMessage[] = products.map((product) => ({
+			id: product.id,
+			name: product.name,
+			sku: product.sku,
+			price: Number(product.price),
+			stockQuantity: product.stockQuantity,
+			description: product.description || '',
+			category: product.category || 'General',
+			imageUrl: product.imageUrl || '',
+			createdAt: product.createdAt.toISOString(),
+			updatedAt: product.updatedAt.toISOString()
+		}))
+
+		return {
+			items,
+			meta: {
+				page,
+				limit,
+				totalItems,
+				totalPages,
+				hasNextPage: page < totalPages,
+				hasPreviousPage: page > 1
+			}
+		}
+	}
+
+	/**
+	 * gRPC Product Detail Query: Retrieve product by ID
+	 */
+	async getProductById(id: string): Promise<ProductItemMessage> {
+		const product = await this.productRepository.findOne({ where: { id } })
+		if (!product) {
+			throw new RpcException({
+				code: GrpcStatus.NOT_FOUND,
+				message: `Product with ID '${id}' not found`
+			})
+		}
+
+		return {
+			id: product.id,
+			name: product.name,
+			sku: product.sku,
+			price: Number(product.price),
+			stockQuantity: product.stockQuantity,
+			description: product.description || '',
+			category: product.category || 'General',
+			imageUrl: product.imageUrl || '',
+			createdAt: product.createdAt.toISOString(),
+			updatedAt: product.updatedAt.toISOString()
+		}
+	}
+
+	/**
+	 * gRPC Cart Batch Validation: Authoritative stock and pricing verification
+	 */
+	async validateCart(items: CartItemInput[]): Promise<ValidateCartResponse> {
+		if (!items || items.length === 0) {
+			return {
+				isValid: true,
+				canProceed: true,
+				items: [],
+				subtotal: 0,
+				currency: 'USD'
+			}
+		}
+
+		const productIds = Array.from(new Set(items.map((item) => item.productId)))
+		const products = await this.productRepository.find({
+			where: { id: In(productIds) }
+		})
+		const productMap = new Map<string, ProductEntity>()
+		for (const p of products) {
+			productMap.set(p.id, p)
+		}
+
+		let subtotal = 0
+		let allValid = true
+		let canProceed = true
+
+		const validatedItems: CartItemValidationResult[] = items.map((cartItem) => {
+			const product = productMap.get(cartItem.productId)
+			const requestedQuantity = Math.max(1, Number(cartItem.quantity) || 1)
+
+			if (!product) {
+				allValid = false
+				canProceed = false
+				return {
+					productId: cartItem.productId,
+					name: 'Unknown Product',
+					sku: 'UNKNOWN',
+					currentPrice: 0,
+					expectedPrice: cartItem.expectedPrice ? Number(cartItem.expectedPrice) : undefined,
+					priceChanged: false,
+					requestedQuantity,
+					availableQuantity: 0,
+					effectiveQuantity: 0,
+					stockStatus: 'OUT_OF_STOCK',
+					itemTotal: 0,
+					hasIssue: true,
+					issueReason: 'Product no longer exists in catalog'
+				}
+			}
+
+			const currentPrice = Number(product.price)
+			const priceChanged =
+				cartItem.expectedPrice !== undefined &&
+				Math.abs(Number(cartItem.expectedPrice) - currentPrice) > 0.001
+
+			let stockStatus: CartStockStatus = 'IN_STOCK'
+			let effectiveQuantity = requestedQuantity
+			let hasIssue = false
+			let issueReason: string | undefined
+
+			if (product.stockQuantity <= 0) {
+				stockStatus = 'OUT_OF_STOCK'
+				effectiveQuantity = 0
+				hasIssue = true
+				issueReason = 'Item is currently out of stock'
+				canProceed = false
+			} else if (product.stockQuantity < requestedQuantity) {
+				stockStatus = 'PARTIALLY_AVAILABLE'
+				effectiveQuantity = product.stockQuantity
+				hasIssue = true
+				issueReason = `Only ${product.stockQuantity} item(s) available`
+			} else if (product.stockQuantity <= 5) {
+				stockStatus = 'LOW_STOCK'
+			}
+
+			if (priceChanged) {
+				hasIssue = true
+				issueReason = issueReason
+					? `${issueReason}; Price changed from $${cartItem.expectedPrice} to $${currentPrice}`
+					: `Price changed from $${cartItem.expectedPrice} to $${currentPrice}`
+			}
+
+			if (hasIssue) {
+				allValid = false
+			}
+
+			const itemTotal = currentPrice * effectiveQuantity
+			subtotal += itemTotal
+
+			return {
+				productId: product.id,
+				name: product.name,
+				sku: product.sku,
+				currentPrice,
+				expectedPrice: cartItem.expectedPrice ? Number(cartItem.expectedPrice) : undefined,
+				priceChanged,
+				requestedQuantity,
+				availableQuantity: product.stockQuantity,
+				effectiveQuantity,
+				stockStatus,
+				itemTotal: Math.round(itemTotal * 100) / 100,
+				hasIssue,
+				issueReason
+			}
+		})
+
+		return {
+			isValid: allValid,
+			canProceed,
+			items: validatedItems,
+			subtotal: Math.round(subtotal * 100) / 100,
+			currency: 'USD'
+		}
+	}
 }
+
+

@@ -3,6 +3,7 @@ import {
 	IsEnum,
 	IsNotEmpty,
 	IsNumber,
+	IsOptional,
 	IsString,
 	validateSync
 } from 'class-validator'
@@ -20,7 +21,16 @@ export class EnvironmentVariables {
 	NODE_ENV!: Environment
 
 	@IsNumber({}, { message: 'METRICS_PORT must be a number' })
+	@IsOptional()
 	METRICS_PORT: number = 3002
+
+	@IsString()
+	@IsOptional()
+	GRPC_HOST: string = '0.0.0.0'
+
+	@IsNumber({}, { message: 'GRPC_PORT must be a number' })
+	@IsOptional()
+	GRPC_PORT: number = 50053
 
 	@IsString()
 	@IsNotEmpty({ message: 'DB_HOST is required' })
