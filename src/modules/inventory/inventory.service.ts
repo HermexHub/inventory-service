@@ -57,154 +57,6 @@ export class InventoryService implements OnApplicationBootstrap {
 
 	async onApplicationBootstrap(): Promise<void> {
 		await this.listenToSagaEvents()
-		await this.seedProductsIfEmpty()
-	}
-
-	private async seedProductsIfEmpty(): Promise<void> {
-		try {
-			const count = await this.productRepository.count()
-			if (count > 0) {
-				const first = await this.productRepository.findOne({ where: {} })
-				if (first && Number(first.price) < 5000 && first.category === 'Laptops') {
-					this.logger.log('Updating catalog prices from USD to UAH (грн)...')
-					await this.productRepository.clear()
-				} else {
-					return
-				}
-			}
-
-			this.logger.log('Seeding initial products catalog with UAH prices...')
-			const seedData: Partial<ProductEntity>[] = [
-				{
-					id: 'prod-mbp-16',
-					name: 'MacBook Pro 16" M3 Max (36GB, 1TB)',
-					sku: 'TECH-MBP-16-M3',
-					price: 139999,
-					stockQuantity: 12,
-					category: 'Laptops',
-					description: 'Supercharged for pros with Apple M3 Max chip, Liquid Retina XDR display, and 36GB Unified Memory.',
-					imageUrl: 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-mba-15',
-					name: 'MacBook Air 15" M3 (16GB, 512GB) Space Gray',
-					sku: 'TECH-MBA-15-M3',
-					price: 64999,
-					stockQuantity: 18,
-					category: 'Laptops',
-					description: 'Impossibly thin design with brilliant 15.3-inch Liquid Retina display and up to 18 hours of battery life.',
-					imageUrl: 'https://images.unsplash.com/photo-1611186871348-b1ce696e52c9?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-asus-g16',
-					name: 'ASUS ROG Zephyrus G16 OLED (RTX 4070, 32GB)',
-					sku: 'TECH-ROG-G16',
-					price: 89999,
-					stockQuantity: 7,
-					category: 'Laptops',
-					description: 'Ultra-slim gaming powerhouse featuring ROG Nebula OLED 240Hz display and Intel Core Ultra 9 processor.',
-					imageUrl: 'https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-ip15-pro',
-					name: 'Apple iPhone 15 Pro Max 256GB Natural Titanium',
-					sku: 'SMART-IP15PM-256',
-					price: 54999,
-					stockQuantity: 24,
-					category: 'Smartphones',
-					description: 'Aerospace-grade titanium design, A17 Pro chip, customizable Action button, and 5x Telephoto camera.',
-					imageUrl: 'https://images.unsplash.com/photo-1695048133142-1a20484d2569?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-s24-ultra',
-					name: 'Samsung Galaxy S24 Ultra 512GB Titanium Gray',
-					sku: 'SMART-S24U-512',
-					price: 52999,
-					stockQuantity: 15,
-					category: 'Smartphones',
-					description: 'Galaxy AI is here. Epic camera with 200MP, built-in S Pen, and Snapdragon 8 Gen 3 for Galaxy.',
-					imageUrl: 'https://images.unsplash.com/photo-1610945415295-d9bbf067e59c?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-sony-xm5',
-					name: 'Sony WH-1000XM5 Wireless Noise Canceling Headphones',
-					sku: 'AUDIO-SONY-XM5',
-					price: 14999,
-					stockQuantity: 30,
-					category: 'Audio',
-					description: 'Industry-leading noise canceling with two processors and 8 microphones for magnificent call quality.',
-					imageUrl: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-bose-ultra',
-					name: 'Bose QuietComfort Ultra Headphones',
-					sku: 'AUDIO-BOSE-QC',
-					price: 16499,
-					stockQuantity: 14,
-					category: 'Audio',
-					description: 'World-class noise cancellation, breakthrough spatialized audio, and elevated luxury design.',
-					imageUrl: 'https://images.unsplash.com/photo-1546435770-a3e426bf472b?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-keychron-q1',
-					name: 'Keychron Q1 Pro Wireless Custom Mechanical Keyboard',
-					sku: 'PERIPH-KEY-Q1PRO',
-					price: 7999,
-					stockQuantity: 20,
-					category: 'Keyboards',
-					description: 'Full aluminum 75% QMK/VIA wireless mechanical keyboard with double-gasket design and PBT keycaps.',
-					imageUrl: 'https://images.unsplash.com/photo-1587829741301-dc798b83add3?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-logi-mx3s',
-					name: 'Logitech MX Master 3S Performance Wireless Mouse',
-					sku: 'PERIPH-LOGI-MX3S',
-					price: 3999,
-					stockQuantity: 45,
-					category: 'Peripherals',
-					description: 'Quiet clicks and 8K DPI any-surface tracking with ultra-fast MagSpeed electromagnetic scrolling wheel.',
-					imageUrl: 'https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-dell-u32',
-					name: 'Dell UltraSharp 32" 4K USB-C Hub Monitor (U3223QE)',
-					sku: 'DISP-DELL-U32',
-					price: 36999,
-					stockQuantity: 9,
-					category: 'Monitors',
-					description: 'Brilliant IPS Black technology with 2000:1 contrast ratio, 98% DCI-P3, and integrated 90W USB-C hub.',
-					imageUrl: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-apple-watch',
-					name: 'Apple Watch Ultra 2 GPS + Cellular 49mm Titanium',
-					sku: 'WEAR-AW-ULTRA2',
-					price: 35999,
-					stockQuantity: 11,
-					category: 'Wearables',
-					description: 'Rugged and capable titanium case with precision dual-frequency GPS and up to 36 hours of battery life.',
-					imageUrl: 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=800&q=80'
-				},
-				{
-					id: 'prod-anker-prime',
-					name: 'Anker Prime 20,000mAh 200W Portable Power Bank',
-					sku: 'ACC-ANKER-PRIME',
-					price: 4699,
-					stockQuantity: 35,
-					category: 'Accessories',
-					description: 'Ultra-fast multi-device charging with smart digital display and compact aerodynamic casing.',
-					imageUrl: 'https://images.unsplash.com/photo-1609592426508-cc29a8f4c473?auto=format&fit=crop&w=800&q=80'
-				}
-			]
-
-			for (const data of seedData) {
-				const product = this.productRepository.create(data)
-				await this.productRepository.save(product)
-			}
-			this.logger.log(`Successfully seeded ${seedData.length} products in UAH`)
-		} catch (err) {
-			this.logger.warn(`Could not seed initial products: ${(err as Error).message}`)
-		}
 	}
 
 
@@ -617,8 +469,46 @@ export class InventoryService implements OnApplicationBootstrap {
 		this.logger.log('Inventory Service Saga listeners successfully activated')
 	}
 
+	private mapProductToMessage(product: ProductEntity): ProductItemMessage {
+		const descObj = product.description || {}
+		const defaultDesc =
+			typeof descObj === 'string'
+				? descObj
+				: descObj.ua || descObj.en || ''
+
+		return {
+			id: product.id,
+			name: product.name,
+			sku: product.sku,
+			price: Number(product.price),
+			oldPrice: product.oldPrice ? Number(product.oldPrice) : undefined,
+			stockQuantity: product.stockQuantity,
+			maxOrderQuantity: product.maxOrderQuantity,
+			description: defaultDesc,
+			descriptionJson:
+				typeof descObj === 'object'
+					? JSON.stringify(descObj)
+					: JSON.stringify({ ua: descObj || '' }),
+			category: product.category || 'General',
+			imageUrl: product.imageUrl || '',
+			images: product.images || [],
+			brand: product.brand || undefined,
+			model: product.model || undefined,
+			color: product.color || undefined,
+			colorHex: product.colorHex || undefined,
+			specsJson: product.specs ? JSON.stringify(product.specs) : '{}',
+			rating: product.rating ? Number(product.rating) : 5.0,
+			reviewsCount: product.reviewsCount || 0,
+			warrantyMonths: product.warrantyMonths || 24,
+			weightGrams: product.weightGrams || 500,
+			badge: product.badge || undefined,
+			createdAt: product.createdAt.toISOString(),
+			updatedAt: product.updatedAt.toISOString()
+		}
+	}
+
 	/**
-	 * gRPC Catalog Query: Paginated products with stock filter, search, and sorting
+	 * gRPC Catalog Query: Paginated products with stock filter, search, faceted filters, and sorting
 	 */
 	async getProducts(request: GetProductsRequest): Promise<GetProductsResponse> {
 		const page = Math.max(1, Number(request.page) || 1)
@@ -631,10 +521,42 @@ export class InventoryService implements OnApplicationBootstrap {
 			queryBuilder.andWhere('product.stockQuantity > 0')
 		}
 
+		if (request.category && request.category.trim().length > 0) {
+			queryBuilder.andWhere('LOWER(product.category) = LOWER(:category)', {
+				category: request.category.trim()
+			})
+		}
+
+		if (request.brand && request.brand.trim().length > 0) {
+			queryBuilder.andWhere('LOWER(product.brand) = LOWER(:brand)', {
+				brand: request.brand.trim()
+			})
+		}
+
+		if (request.specsFilterJson && request.specsFilterJson.trim().length > 0) {
+			try {
+				const specsFilters: Record<string, string> = JSON.parse(
+					request.specsFilterJson
+				)
+				for (const [key, val] of Object.entries(specsFilters)) {
+					if (val && typeof val === 'string' && val.trim().length > 0) {
+						queryBuilder.andWhere(`product.specs ->> :specKey = :specVal`, {
+							specKey: key,
+							specVal: val.trim()
+						})
+					}
+				}
+			} catch (err) {
+				this.logger.warn(
+					`Failed to parse specsFilterJson: ${(err as Error).message}`
+				)
+			}
+		}
+
 		if (request.search && request.search.trim().length > 0) {
 			const searchTerm = `%${request.search.trim().toLowerCase()}%`
 			queryBuilder.andWhere(
-				'(LOWER(product.name) LIKE :searchTerm OR LOWER(product.description) LIKE :searchTerm OR LOWER(product.sku) LIKE :searchTerm)',
+				'(LOWER(product.name) LIKE :searchTerm OR LOWER(product.sku) LIKE :searchTerm OR LOWER(product.brand) LIKE :searchTerm)',
 				{ searchTerm }
 			)
 		}
@@ -651,18 +573,9 @@ export class InventoryService implements OnApplicationBootstrap {
 		const [products, totalItems] = await queryBuilder.getManyAndCount()
 		const totalPages = Math.ceil(totalItems / limit) || 1
 
-		const items: ProductItemMessage[] = products.map((product) => ({
-			id: product.id,
-			name: product.name,
-			sku: product.sku,
-			price: Number(product.price),
-			stockQuantity: product.stockQuantity,
-			description: product.description || '',
-			category: product.category || 'General',
-			imageUrl: product.imageUrl || '',
-			createdAt: product.createdAt.toISOString(),
-			updatedAt: product.updatedAt.toISOString()
-		}))
+		const items: ProductItemMessage[] = products.map((product) =>
+			this.mapProductToMessage(product)
+		)
 
 		return {
 			items,
@@ -689,18 +602,7 @@ export class InventoryService implements OnApplicationBootstrap {
 			})
 		}
 
-		return {
-			id: product.id,
-			name: product.name,
-			sku: product.sku,
-			price: Number(product.price),
-			stockQuantity: product.stockQuantity,
-			description: product.description || '',
-			category: product.category || 'General',
-			imageUrl: product.imageUrl || '',
-			createdAt: product.createdAt.toISOString(),
-			updatedAt: product.updatedAt.toISOString()
-		}
+		return this.mapProductToMessage(product)
 	}
 
 	/**
